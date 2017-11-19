@@ -54,6 +54,62 @@ class DecisionTree(object):
         lines = ['digraph G {'] + lines + ['}']
         return '\n'.join(lines)
 
+    def get_query_for_outcome(self, node_id):
+        """DFS the decision tree to find all paths that lead to node_id."""
+        seen = [0]
+        current_query = {}
+        success_paths = []
+        self.dfs_from_node_with_target(0, seen, current_query, success_paths, node_id)
+        return success_paths
+
+    def dfs_from_node_with_target(self, current_id, current_path, current_query, success_paths, target):
+        node = self.nodes[current_id]
+        for (query, next_node) in node.outgoing_edges():
+            if next_node in current_path:
+                # We've already visited it
+                continue
+
+            new_query = intersection(query, current_query)
+            if not new_query:
+                # There's no way to take this edge given the path we
+                # took to get here.
+                continue
+
+            if next_node == target:
+                # This query gets us to what we want!
+                success_paths.append(new_query)
+                continue
+
+            # Otherwise continue the DFS
+            new_path = current_path + [current_id]
+            self.dfs_from_node_with_target(next_node, current_path, new_query, success_paths, target)
+
+
+def intersection(query1, query2):
+    """Merge two queries, returning one that will satisfy both queries.
+
+    If a key is missing from a query, it means any value at all is acceptable.
+
+    If incompatible values are present in the two queries, return
+    None, indicating that the intersection is empty.
+
+    """
+    ret = query2.copy()
+    for k, v in query1.items():
+        if k not in ret:
+            # query2 doesn't care about this, so just use query1's value
+            ret[k] = v
+            continue
+
+        if ret[k] == v:
+            # OK, both queries want the same thing
+            continue
+
+        # The queries want different things.
+        # FIXME: actually implement this case
+        return None
+
+    return ret
 
 
 class Outcome(object):
@@ -123,6 +179,15 @@ class DecisionNode(object):
 
         """
         pass
+
+    def outgoing_edges(self):
+        """Return a list of (query, next_node) pairs.
+
+        Each pair represents a possible next step in the decision
+        tree, as well as the required query that would be necessary to
+        get there.
+        """
+        return []
 
 
 def label_with_id(node_id, label):
@@ -208,6 +273,12 @@ class VersionCutoffNode(DecisionNode):
         lines.append(edge(node_id, self.greater_or_equal_node, 'no (gte)'))
         return '\n'.join(lines)
 
+    def outgoing_edges(self):
+        return [
+            ({"version": "<{}".format(self.cutoff)}, self.less_node),
+            ({"version": ">={}".format(self.cutoff)}, self.greater_or_equal_node)
+        ]
+
 
 class VersionExactNode(DecisionNode):
     """Another node that examines the query's version.
@@ -230,6 +301,11 @@ class VersionExactNode(DecisionNode):
         lines.append(edge(node_id, self.failure_node, 'otherwise'))
         return '\n'.join(lines)
 
+    def outgoing_edges(self):
+        return [
+            ({"version": "=={}".format(self.match)}, self.success_node),
+            ({"version": "!={}".format(self.match)}, self.failure_node)
+        ]
 
 
 # Conceptually, every decision node is an on/off decision point like
@@ -264,6 +340,13 @@ class OperatingSystemNode(DecisionNode):
         lines.append(edge(node_id, self.macos_node, 'macos'))
         return '\n'.join(lines)
 
+    def outgoing_edges(self):
+        return [
+            ({"os": "windows"}, self.windows_node),
+            ({"os": "linux"}, self.linux_node),
+            ({"os": "macos"}, self.macos_node),
+        ]
+
 
 class ProductNode(DecisionNode):
     """A node that tries to match the "product" of a query.
@@ -289,6 +372,12 @@ class ProductNode(DecisionNode):
         lines.append(edge(node_id, self.failure_node, 'otherwise'))
         return '\n'.join(lines)
 
+    def outgoing_edges(self):
+        return [
+            ({"product": "=={}".format(self.product)}, self.success_node),
+            ({"product": "!={}".format(self.product)}, self.failure_node),
+        ]
+
 
 class CPUArchitectureNode(DecisionNode):
     """A node that checks for 32-bit and 64-bit hardware."""
@@ -310,6 +399,12 @@ class CPUArchitectureNode(DecisionNode):
         lines.append(edge(node_id, self.node_64bit, '64-bit'))
         return '\n'.join(lines)
 
+    def outgoing_edges(self):
+        return [
+            ({"cpuarch": 32}, self.node_32bit),
+            ({"cpuarch": 64}, self.node_64bit),
+        ]
+
 
 class OSArchitectureNode(DecisionNode):
     """A node that checks fro 32-bit and 64-bit OSes."""
@@ -329,6 +424,12 @@ class OSArchitectureNode(DecisionNode):
         lines.append(edge(node_id, self.node_32bit, '32-bit'))
         lines.append(edge(node_id, self.node_64bit, '64-bit'))
         return '\n'.join(lines)
+
+    def outgoing_edges(self):
+        return [
+            ({"osarch": 32}, self.node_32bit),
+            ({"osarch": 64}, self.node_64bit),
+        ]
 
 
 class LocaleMatcherNode(DecisionNode):
@@ -352,6 +453,14 @@ class LocaleMatcherNode(DecisionNode):
         lines.append(edge(node_id, self.success_node, ', '.join(self.locales)))
         lines.append(edge(node_id, self.failure_node, 'otherwise'))
         return '\n'.join(lines)
+
+    def outgoing_edges(self):
+        return [
+            # FIXME: it would be great to have a definitive list of
+            # locales so that we could just use a complete list
+            ({"locale": "in {}".format(', '.join(self.locales))}, self.success_node),
+            ({"locale": "any but {}".format(', '.join(self.locales))}, self.failure_node),
+        ]
 
 
 class ArbitraryMatcherNode(DecisionNode):
@@ -380,6 +489,14 @@ class ArbitraryMatcherNode(DecisionNode):
         lines.append(edge(node_id, self.success_node, self.value))
         lines.append(edge(node_id, self.failure_node, 'otherwise'))
         return '\n'.join(lines)
+
+    def outgoing_edges(self):
+        return [
+            # FIXME: it would be great to have a definitive list of
+            # locales so that we could just use a complete list
+            ({self.key: "=={}".format(self.value)}, self.success_node),
+            ({self.key: "!={}".format(self.value)}, self.failure_node),
+        ]
 
 
 ########## End decision nodes! ############
@@ -484,6 +601,10 @@ def main():
     }
     print(my_dt.get_outcome(query).value)
     try_render_graphviz(my_dt, 'rules')
+
+    print('Who gets firefox57-lzma-nownp?')
+    for query in my_dt.get_query_for_outcome(8):
+        print(', '.join('{}: {}'.format(k.title(), v) for k, v in sorted(query.items())))
 
 
 if __name__ == '__main__':
