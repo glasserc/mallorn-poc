@@ -4,6 +4,7 @@ mallorn: a POC for a decision tree architecture for Balrog
 See README for more info.
 """
 
+import subprocess
 
 class DecisionTree(object):
     """An entire decision tree.
@@ -40,7 +41,19 @@ class DecisionTree(object):
 
 
     def render_graphviz(self):
-        pass
+        """Return a graphviz digraph representing this decision tree."""
+        lines = [
+            'node [shape=diamond];',
+            'start [shape=box];',
+            'start -> node_0;',
+        ]
+
+        for node_id, node in self.nodes.items():
+            lines.append(node.render_graphviz(node_id))
+
+        lines = ['digraph G {'] + lines + ['}']
+        return '\n'.join(lines)
+
 
 
 class Outcome(object):
@@ -92,6 +105,71 @@ class DecisionNode(object):
         """
         pass
 
+    def render_graphviz(self, node_id):
+        """Render a graphviz fragment for this node.
+
+        This should return a string describing this node and its links
+        to other nodes.
+
+        By convention, all nodes are represented in graphviz as
+        vertices with IDs of the form node_id.
+
+        It's considered good practice to have the node label include
+        the node ID for informational purposes.
+
+        Decision points should be represented as shape=diamond
+        (currently the graph-wide default). Outcomes should be
+        represented as shape=ellipse.
+
+        """
+        pass
+
+
+def label_with_id(node_id, label):
+    """Get a graphviz label which is prefixed with a node ID.
+
+    This uses the Graphviz "HTML" format for labels to call out the
+    node ID in a way that is visually distinct from the remaining content.
+
+    You can make a more complicated label by passing a label which is
+    itself HTML.
+    """
+    return '<<b><u>{}</u></b><br/>{}>'.format(
+        node_id, label)
+
+
+def graphviz_vertex_with_id(node_id, label):
+    """Get a graphviz node description given the ID and label.
+
+    This describes the Graphviz vertex by itself and is appropriate if
+    you have a DecisionNode that isn't an outcome and therefore
+    doesn't have any interesting formatting requirements.
+
+    This generates the node's label using label_with_node_id, which
+    see for more information.
+
+    """
+    return 'node_{} [label={}];'.format(node_id, label_with_id(node_id, label))
+
+
+def safe_node_id(node_id):
+    """Helper to sanitize graphviz node IDs.
+
+    Hyphens (-) are not allowed as part of a node ID.
+
+    We also prefix all node IDs with "node_".
+    """
+    return 'node_{}'.format(str(node_id).replace('-', '_'))
+
+
+def edge(node_src, node_dest, label):
+    """Helper to generate graphviz fragments for edges."""
+    return '{} -> {} [label="{}"];'.format(
+        safe_node_id(node_src),
+        safe_node_id(node_dest),
+        label
+    )
+
 
 class OutcomeNode(DecisionNode):
     """A "terminal" in the decision tree.
@@ -102,6 +180,11 @@ class OutcomeNode(DecisionNode):
 
     def get_outcome(self, query):
         return Outcome(self.value)
+
+    def render_graphviz(self, node_id):
+        label = label_with_id(node_id, self.value)
+        return '{} [shape=ellipse,label={}];'.format(
+            safe_node_id(node_id), label)
 
 
 class VersionCutoffNode(DecisionNode):
@@ -118,6 +201,13 @@ class VersionCutoffNode(DecisionNode):
         else:
             return Continue(self.greater_or_equal_node)
 
+    def render_graphviz(self, node_id):
+        label = 'version &lt; {}?'.format(self.cutoff)
+        lines = [graphviz_vertex_with_id(node_id, label)]
+        lines.append(edge(node_id, self.less_node, 'yes (lt)'))
+        lines.append(edge(node_id, self.greater_or_equal_node, 'no (gte)'))
+        return '\n'.join(lines)
+
 
 class VersionExactNode(DecisionNode):
     """Another node that examines the query's version.
@@ -133,6 +223,13 @@ class VersionExactNode(DecisionNode):
             return Continue(self.success_node)
         else:
             return Continue(self.failure_node)
+
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'check version')]
+        lines.append(edge(node_id, self.success_node, '= {}'.format(self.match)))
+        lines.append(edge(node_id, self.failure_node, 'otherwise'))
+        return '\n'.join(lines)
+
 
 
 # Conceptually, every decision node is an on/off decision point like
@@ -160,6 +257,13 @@ class OperatingSystemNode(DecisionNode):
         else:
             return Continue(self.macos_node)
 
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'check OS')]
+        lines.append(edge(node_id, self.windows_node, 'windows'))
+        lines.append(edge(node_id, self.linux_node, 'linux'))
+        lines.append(edge(node_id, self.macos_node, 'macos'))
+        return '\n'.join(lines)
+
 
 class ProductNode(DecisionNode):
     """A node that tries to match the "product" of a query.
@@ -179,6 +283,12 @@ class ProductNode(DecisionNode):
         else:
             return Continue(self.failure_node)
 
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'check product')]
+        lines.append(edge(node_id, self.success_node, '= {}'.format(self.product)))
+        lines.append(edge(node_id, self.failure_node, 'otherwise'))
+        return '\n'.join(lines)
+
 
 class CPUArchitectureNode(DecisionNode):
     """A node that checks for 32-bit and 64-bit hardware."""
@@ -194,6 +304,12 @@ class CPUArchitectureNode(DecisionNode):
         else:
             return Continue(self.node_64bit)
 
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'cpu arch')]
+        lines.append(edge(node_id, self.node_32bit, '32-bit'))
+        lines.append(edge(node_id, self.node_64bit, '64-bit'))
+        return '\n'.join(lines)
+
 
 class OSArchitectureNode(DecisionNode):
     """A node that checks fro 32-bit and 64-bit OSes."""
@@ -201,13 +317,18 @@ class OSArchitectureNode(DecisionNode):
         self.node_32bit = node_32bit
         self.node_64bit = node_64bit
 
-
     def get_outcome(self, query):
         bits = query['osarch']
         if bits == 32:
             return Continue(self.node_32bit)
         else:
             return Continue(self.node_64bit)
+
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'os arch')]
+        lines.append(edge(node_id, self.node_32bit, '32-bit'))
+        lines.append(edge(node_id, self.node_64bit, '64-bit'))
+        return '\n'.join(lines)
 
 
 class LocaleMatcherNode(DecisionNode):
@@ -225,6 +346,12 @@ class LocaleMatcherNode(DecisionNode):
             return Continue(self.success_node)
         else:
             return Continue(self.failure_node)
+
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'locale')]
+        lines.append(edge(node_id, self.success_node, ', '.join(self.locales)))
+        lines.append(edge(node_id, self.failure_node, 'otherwise'))
+        return '\n'.join(lines)
 
 
 class ArbitraryMatcherNode(DecisionNode):
@@ -248,9 +375,33 @@ class ArbitraryMatcherNode(DecisionNode):
         else:
             return Continue(self.failure_node)
 
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, self.key)]
+        lines.append(edge(node_id, self.success_node, self.value))
+        lines.append(edge(node_id, self.failure_node, 'otherwise'))
+        return '\n'.join(lines)
+
 
 ########## End decision nodes! ############
 # OK let's get to the good stuff.
+def try_render_graphviz(dt, filename_base):
+    dot_filename = '{}.dot'.format(filename_base)
+    png_filename = '{}.png'.format(filename_base)
+    with open(dot_filename, 'w') as f:
+        f.write(dt.render_graphviz())
+
+    try:
+        subprocess.check_call(
+            ['dot', dot_filename, '-Tpng', '-o', png_filename]
+        )
+    except OSError:
+        # Guess graphviz isn't installed on this computer.
+        # Silently don't render a png.
+        #
+        # check_call raises CalledProcessError if dot returned
+        # nonzero, so that isn't handled (bubbles up).
+        pass
+
 
 def main():
     VARIANT_A_AND_B = set([
@@ -337,6 +488,7 @@ def main():
         "JAWS": 0,
     }
     print(my_dt.get_outcome(query).value)
+    try_render_graphviz(my_dt, 'rules')
 
 
 if __name__ == '__main__':
