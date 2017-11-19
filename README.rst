@@ -117,6 +117,11 @@ Things that the POC was not meant to illustrate:
   find a beautiful code-level API. Indeed, code quality leaves much to
   be desired -- sorry!
 
+- The complete or correct set of decision points. The ones I have are
+  just because they were interesting to me at the time. Hopefully the
+  idea still makes sense even if the specific set of decision points I
+  chose are wrong.
+
 - Efficiency. I am convinced that this design could be made as
   efficient or moreso than the Balrog design, but that wasn't my aim
   here. The biggest load on Balrog are update queries, but as they are
