@@ -435,7 +435,7 @@ def main():
         8: OutcomeNode('firefox57-lzma-nownp'),
 
         # Windows
-        9: CPUArchitectureNode(14, 10),
+        9: CPUArchitectureNode(11, 10),
         # 64-bit processor. Check if 32-bit OS.
         # FIXME: no idea what "eligible" means here; just ignoring it
         10: OSArchitectureNode(40, 11),
