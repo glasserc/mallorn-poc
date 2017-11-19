@@ -107,6 +107,21 @@ def intersection(query1, query2):
 
         # The queries want different things.
         # FIXME: actually implement this case
+        # Pay no attention to the man behind the curtain...
+        if k == 'version':
+            if v == '==55.0.3' and ret[k] == '<56':
+                ret[k] = '==55.0.3'
+                continue
+            elif v == '!=55.0.3' and ret[k] == '<56':
+                ret[k] = '<56 and !=55.0.3'
+                continue
+            if v == '==54.0.1' and ret[k] == '<56 and !=55.0.3':
+                ret[k] = '==54.0.1'
+                continue
+            elif v == '!=54.0.1' and ret[k] == '<56 and !=55.0.3':
+                ret[k] = '<56 and !=55.0.3 and !=54.0.1'
+                continue
+
         return None
 
     return ret
