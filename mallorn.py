@@ -73,6 +73,10 @@ class DecisionTree(object):
             if not new_query:
                 # There's no way to take this edge given the path we
                 # took to get here.
+                # However, this shouldn't happen in this particular
+                # demo, so it probably means I need to hard-code
+                # another specific combination..
+                print("Impossible to merge {} {}".format(query, current_query))
                 continue
 
             if next_node == target:
