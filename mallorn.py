@@ -4,6 +4,7 @@ mallorn: a POC for a decision tree architecture for Balrog
 See README for more info.
 """
 
+import json
 import subprocess
 
 
@@ -132,6 +133,35 @@ class DecisionTree(object):
                 ret.append((brand_new, None, node.value))
 
         return ret
+
+    def serialize(self):
+        """Get a list of serialized values representing this decision tree.
+
+        Each element in the list represents a decision point. The
+        format of the element is:
+
+        (node_id, type, json)
+
+        where node_id is the node ID, type is the class name of the
+        node (just as a shortcut), and json is a JSON blob
+        representing the internal values of the node.
+
+        """
+        return [
+            (node_id, type(node).__name__, json.dumps(node.serialize()))
+            for node_id, node in self.nodes.items()
+        ]
+
+    @classmethod
+    def deserialize(cls, state):
+        """Rehydrate a DecisionTree from the output of a serialize()."""
+        nodes = {}
+        for node_id, typename, node_state in state:
+            # FIXME: this is obviously really dangerous and we'd want
+            # to reinforce the type -> typename -> type translations
+            node_type = globals()[typename]
+            nodes[node_id] = node_type.deserialize(json.loads(node_state))
+        return cls(nodes)
 
 
 def intersection(query1, query2):
@@ -303,6 +333,15 @@ class DecisionNode(object):
         """
         return []
 
+    def serialize(self):
+        """Return a JSON blob representing this node's contents."""
+        pass
+
+    @classmethod
+    def deserialize(cls, json):
+        """Rehydrate an instance of this class given the values from json."""
+        pass
+
 
 def label_with_id(node_id, label):
     """Get a graphviz label which is prefixed with a node ID.
@@ -365,6 +404,13 @@ class OutcomeNode(DecisionNode):
         return '{} [shape=ellipse,label={}];'.format(
             safe_node_id(node_id), label)
 
+    def serialize(self):
+        return {"value": self.value}
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['value'])
+
 
 class VersionCutoffNode(DecisionNode):
     """A node that tries to examine the query's version."""
@@ -393,6 +439,17 @@ class VersionCutoffNode(DecisionNode):
             ({"version": ">={}".format(self.cutoff)}, self.greater_or_equal_node)
         ]
 
+    def serialize(self):
+        return {
+            "cutoff": self.cutoff,
+            "lt": self.less_node,
+            "gte": self.greater_or_equal_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['cutoff'], json['lt'], json['gte'])
+
 
 class VersionExactNode(DecisionNode):
     """Another node that examines the query's version.
@@ -420,6 +477,17 @@ class VersionExactNode(DecisionNode):
             ({"version": "=={}".format(self.match)}, self.success_node),
             ({"version": "!={}".format(self.match)}, self.failure_node)
         ]
+
+    def serialize(self):
+        return {
+            "match": self.match,
+            "success": self.success_node,
+            "failure": self.failure_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['match'], json['success'], json['failure'])
 
 
 # Conceptually, every decision node is an on/off decision point like
@@ -461,6 +529,17 @@ class OperatingSystemNode(DecisionNode):
             ({"os": "macos"}, self.macos_node),
         ]
 
+    def serialize(self):
+        return {
+            "windows": self.windows_node,
+            "linux": self.linux_node,
+            "macos": self.macos_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['windows'], json['linux'], json['macos'])
+
 
 class ProductNode(DecisionNode):
     """A node that tries to match the "product" of a query.
@@ -492,6 +571,17 @@ class ProductNode(DecisionNode):
             ({"product": "!={}".format(self.product)}, self.failure_node),
         ]
 
+    def serialize(self):
+        return {
+            "product": self.product,
+            "success": self.success_node,
+            "failure": self.failure_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['product'], json['success'], json['failure'])
+
 
 class CPUArchitectureNode(DecisionNode):
     """A node that checks for 32-bit and 64-bit hardware."""
@@ -519,6 +609,16 @@ class CPUArchitectureNode(DecisionNode):
             ({"cpuarch": 64}, self.node_64bit),
         ]
 
+    def serialize(self):
+        return {
+            "node_32bit": self.node_32bit,
+            "node_64bit": self.node_64bit
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['node_32bit'], json['node_64bit'])
+
 
 class OSArchitectureNode(DecisionNode):
     """A node that checks fro 32-bit and 64-bit OSes."""
@@ -544,6 +644,16 @@ class OSArchitectureNode(DecisionNode):
             ({"osarch": 32}, self.node_32bit),
             ({"osarch": 64}, self.node_64bit),
         ]
+
+    def serialize(self):
+        return {
+            "node_32bit": self.node_32bit,
+            "node_64bit": self.node_64bit
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['node_32bit'], json['node_64bit'])
 
 
 class LocaleMatcherNode(DecisionNode):
@@ -575,6 +685,17 @@ class LocaleMatcherNode(DecisionNode):
             ({"locale": "in {}".format(', '.join(self.locales))}, self.success_node),
             ({"locale": "any but {}".format(', '.join(self.locales))}, self.failure_node),
         ]
+
+    def serialize(self):
+        return {
+            "locales": list(self.locales),
+            "success": self.success_node,
+            "failure": self.failure_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(set(json['locales']), json['success'], json['failure'])
 
 
 class ArbitraryMatcherNode(DecisionNode):
@@ -611,6 +732,18 @@ class ArbitraryMatcherNode(DecisionNode):
             ({self.key: "=={}".format(self.value)}, self.success_node),
             ({self.key: "!={}".format(self.value)}, self.failure_node),
         ]
+
+    def serialize(self):
+        return {
+            "key": self.key,
+            "value": self.value,
+            "success": self.success_node,
+            "failure": self.failure_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['key'], json['value'], json['success'], json['failure'])
 
 
 ########## End decision nodes! ############
@@ -745,6 +878,15 @@ def main():
         for query in queries:
             print(format_query(query))
         print("")
+
+    print("Now, serializing the new tree:")
+    values = potential_new_tree.serialize()
+    for node_id, type, state in values:
+        print("INSERT INTO decision_nodes VALUES ({}, {}, {});".format(
+            node_id, repr(type), repr(state)))
+
+    deserialized = DecisionTree.deserialize(values)
+    assert deserialized == potential_new_tree
 
 
 if __name__ == '__main__':
