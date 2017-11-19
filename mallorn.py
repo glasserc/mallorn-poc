@@ -6,6 +6,7 @@ See README for more info.
 
 import subprocess
 
+
 class DecisionTree(object):
     """An entire decision tree.
 
@@ -38,7 +39,6 @@ class DecisionTree(object):
 
             # Otherwise, result is a Continue.
             current_node_id = result.next_node_id
-
 
     def render_graphviz(self):
         """Return a graphviz digraph representing this decision tree."""
