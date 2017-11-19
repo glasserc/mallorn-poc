@@ -449,7 +449,7 @@ def main():
         14: OutcomeNode('firefox56-bz2partial'),
         15: OutcomeNode('firefox56-bz2complete'),
 
-        16: ArbitraryMatcherNode('JAWS', '1', 17, 18),
+        16: ArbitraryMatcherNode('JAWS', '1', 17, 6),
         # Incompatible JAWS. Ship 56.0.2.
         # N.B. The real spreadsheet says that <56.0.2 get shipped
         # 56.0.2, and 56.0.2 gets shipped nothing. This seems kind of
@@ -458,9 +458,6 @@ def main():
         # skipping it.
         17: OutcomeNode('firefox56.0.2-jaws-incompatible'),
 
-        # JAWS-compatible, 56
-        18: LocaleMatcherNode(VARIANT_A_AND_B, 7, 8),
-
         # 32-bit OS, 64-bit processor. Trying to migrate.
         40: ArbitraryMatcherNode('JAWS', 1, 41, 44),
         # JAWS incompatible. We migrate but only on 56.0.
@@ -468,13 +465,11 @@ def main():
         42: OutcomeNode('firefox56.0.2-lzma-migration'),
 
         # JAWS is OK. We only migrate 56.0.
-        44: VersionExactNode('56.0', 45, 48),
+        44: VersionExactNode('56.0', 45, 6),
         45: LocaleMatcherNode(VARIANT_A_AND_B, 46, 47),
         46: OutcomeNode('firefox57-lzmacomplete-wnp'),
         47: OutcomeNode('firefox57-lzmacomplete-nownp'),
 
-        # Don't migrate anyone else.
-        48: LocaleMatcherNode(VARIANT_A_AND_B, 7, 8),
     })
 
     print(my_dt)
