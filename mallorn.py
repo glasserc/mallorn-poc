@@ -88,6 +88,51 @@ class DecisionTree(object):
             new_path = current_path + [current_id]
             self.dfs_from_node_with_target(next_node, current_path, new_query, success_paths, target)
 
+    def replace(self, node_id, new_node):
+        """Returns a new DecisionTree but with node_id replaced.
+
+        I originally wanted this to construct an entirely new decision
+        tree that shared as much as possible with the old one, so that
+        you could e.g. store both in the same DB, but that sounds like
+        more work than I have time for right now, so whatever.
+
+        """
+        new_nodes = self.nodes.copy()
+        new_nodes[node_id] = new_node
+        return type(self)(new_nodes)
+
+    def compare_outcomes(self, rhs):
+        """Return a list of (query, my_outcome, rhs_outcome).
+
+        This can be used to "diff" two trees.
+        """
+        # FIXME: This implementation only works if rhs node_id ->
+        # outcome mapping is the same as in self.
+        # This would be wrong if replace() worked "correctly", above.
+        # FIXME: This implementation only works if the set of
+        # "outcomes" is the same in the two trees.
+        outcomes = [
+            (node_id, node)
+            for node_id, node in self.nodes.items()
+            if isinstance(node, OutcomeNode)
+        ]
+        ret = []
+        for (node_id, node) in outcomes:
+            my_matching_queries = self.get_query_for_outcome(node_id)
+            rhs_matching_queries = rhs.get_query_for_outcome(node_id)
+            # Compute my_queries - rhs_queries to see who is no longer
+            # getting this outcome.
+            no_longer = subtract_querysets(my_matching_queries, rhs_matching_queries)
+            if no_longer:
+                ret.append((no_longer, node.value, None))
+            # Now, the other way around, who's getting it now that
+            # didn't used to?
+            brand_new = subtract_querysets(rhs_matching_queries, my_matching_queries)
+            if brand_new:
+                ret.append((brand_new, None, node.value))
+
+        return ret
+
 
 def intersection(query1, query2):
     """Merge two queries, returning one that will satisfy both queries.
@@ -125,11 +170,61 @@ def intersection(query1, query2):
             elif v == '!=54.0.1' and ret[k] == '<56 and !=55.0.3':
                 ret[k] = '<56 and !=55.0.3 and !=54.0.1'
                 continue
+            if v == '==56.0' and ret[k] == '>=56':
+                ret[k] = '==56.0'
+                continue
+            elif v == '!=56.0' and ret[k] == '>=56':
+                ret[k] = '>56.0'
+                continue
 
         return None
 
     return ret
 
+
+def subtract_querysets(lhs, rhs):
+    lhs_without_common = [l for l in lhs if l not in rhs]
+    rhs_without_common = [r for r in rhs if r not in lhs]
+    if len(lhs_without_common) == 0:
+        # Nothing left
+        return []
+
+    if len(rhs_without_common) == 0:
+        # Subtraction complete
+        return lhs_without_common
+
+    assert len(lhs_without_common) == 2
+    assert len(lhs_without_common) == len(rhs_without_common)
+
+    # FIXME: Yet another thing that needs a real set-of-possibilities
+    # implementation to work right
+    (linux_lhs, macos_lhs) = lhs_without_common
+    (linux_rhs, macos_rhs) = rhs_without_common
+    ret = []
+
+    # They should only differ on version
+    linux_diff = set(linux_lhs.items()).symmetric_difference(set(linux_rhs.items()))
+    assert len(linux_diff) == 2
+    assert all([key == 'version' for (key, value) in list(linux_diff)])
+    macos_diff = set(macos_lhs.items()).symmetric_difference(set(macos_rhs.items()))
+    assert len(macos_diff) == 2
+    assert all([key == 'version' for (key, value) in list(macos_diff)])
+    if linux_lhs['version'] == '>56.0' and linux_rhs['version'] == '>=56':
+        # We've subtracted everything.
+        # macos should be symmetric with linux
+        return []
+
+    if linux_lhs['version'] == '>=56' and linux_rhs['version'] == '>56.0':
+        new_linux = linux_lhs.copy()
+        new_linux['version'] = '==56.0'
+        ret.append(new_linux)
+
+    if macos_lhs['version'] == '>=56' and macos_rhs['version'] == '>56.0':
+        new_macos = macos_lhs.copy()
+        new_macos['version'] = '==56.0'
+        ret.append(new_macos)
+
+    return ret
 
 class Outcome(object):
     """A decision tree's Outcome.
@@ -539,6 +634,10 @@ def try_render_graphviz(dt, filename_base):
         pass
 
 
+def format_query(query):
+    return ', '.join('{}: {}'.format(k.title(), v) for k, v in sorted(query.items()))
+
+
 def main():
     VARIANT_A_AND_B = set([
         'ast', 'bg', 'bs', 'cak', 'cs', 'cy', 'da', 'de', 'dsb', 'en-GB',
@@ -623,7 +722,29 @@ def main():
 
     print('Who gets firefox57-lzma-nownp?')
     for query in my_dt.get_query_for_outcome(8):
-        print(', '.join('{}: {}'.format(k.title(), v) for k, v in sorted(query.items())))
+        print(format_query(query))
+
+    print('')
+
+    potential_new_node_2 = VersionCutoffNode('56', 3, 44)
+    print("What if we replace node 2 ({}) with {}?".format(my_dt.nodes[2], potential_new_node_2))
+    potential_new_tree = my_dt.replace(2, potential_new_node_2)
+    # The actual real differences here are that now 56.0, which used
+    # to go to node 6, is now shunted to node 45. So 56.0 previously
+    # got either firefox57-lzma-wnp or firefox57-lzma-nownp, now gets
+    # firefox57-lzmacomplete-wnp or firefox57-lzmacomplete-nownp. All
+    # >56.0 are unchanged.
+    #
+    # My POC implementation of compare_outcomes isn't smart enough to
+    # track where things "went" or "came from" so they get printed
+    # separately. I think the fastest way to fix that is to implement
+    # "get_all_outcomes_for_querysets"..
+    diff = my_dt.compare_outcomes(potential_new_tree)
+    for queries, old_outcome, new_outcome in diff:
+        print("Previously: {}. Now: {}.".format(old_outcome, new_outcome))
+        for query in queries:
+            print(format_query(query))
+        print("")
 
 
 if __name__ == '__main__':
