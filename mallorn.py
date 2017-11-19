@@ -746,6 +746,53 @@ class ArbitraryMatcherNode(DecisionNode):
         return cls(json['key'], json['value'], json['success'], json['failure'])
 
 
+class GradualRolloutNode(DecisionNode):
+    # A little bonus -- this is how to implement backgroundRate while
+    # staying inside the decision tree framework.
+    #
+    # This is completely untested because we don't use it in the
+    # example.
+    def __init__(self, rollout_pct, inside_node, outside_node):
+        self.rollout_pct = rollout_pct
+        self.inside_node = inside_node
+        self.outside_node = outside_node
+
+    def get_outcome(self, query):
+        if 'force' in query:
+            force = query['force']
+            n = force.pop(0)
+        else:
+            n = random.randint(0, 100) + 1
+
+        if n < self.rollout_pct:
+            return Continue(self.inside_node)
+        else:
+            return Continue(self.outside_node)
+
+    def render_graphviz(self, node_id):
+        lines = [graphviz_vertex_with_id(node_id, 'rollout')]
+        lines.append(edge(node_id, self.inside_node, '{}%'.format(self.rollout_pct)))
+        lines.append(edge(node_id, self.outside_node, 'otherwise'))
+        return '\n'.join(lines)
+
+    def outgoing_edges(self):
+        return [
+            ({}, self.inside_node),
+            ({}, self.outside_node)
+        ]
+
+    def serialize(self):
+        return {
+            "rollout_pct": self.rollout_pct,
+            "inside": self.inside_node,
+            "outside": self.outside_node
+        }
+
+    @classmethod
+    def deserialize(cls, json):
+        return cls(json['rollout_pct'], json['inside'], json['outside'])
+
+
 ########## End decision nodes! ############
 # OK let's get to the good stuff.
 def try_render_graphviz(dt, filename_base):
