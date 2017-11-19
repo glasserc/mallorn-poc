@@ -101,7 +101,7 @@ the idea. The goal of the POC was to illustrate:
 
 - Why the design is worth pursuing. This takes the form of a couple of
   neat features which would be quite difficult to write in Balrog, but
-  are rather easy to write using the tree-based approach.
+  are straightforward to write using the tree-based approach.
 
 - How such an inherently nested design might serialize to/from a
   database.
@@ -147,3 +147,43 @@ this file:
   suitable for storing in a database (the INSERT query is printed to
   standard output), and then deserialized back into a decision tree
   (which is compared with the original to demonstrate accuracy).
+
+Conclusions
+===========
+
+It's possible to use a decision tree design to make it much clearer
+what update queries are served what responses and why. Adding a neat
+graph using graphviz is trivial. Calculating the populations which are
+served a specific outcome is straightforward, but doing so correctly
+requires an implementation of some kind of first-order logic, which I
+didn't do (I hard-coded a couple of operations). Doing a "diff" on
+those populations is also potentially quite useful, and doing a diff
+on those populations' outcomes is too, but these require a bit more
+work. However, all are still quite feasible.
+
+It's theoretically possible to serialize a decision tree into a set of
+Balrog rules (but doing so will probably lead to an even more
+incomprehensible list of rules than you'd normally expect). Similarly,
+it's theoretically possible to turn a Balrog ruleset into a decision
+tree, but it will be an extremely right-heavy tree of great depth,
+with each node being something like "does it match this rule? If so,
+do this. Otherwise, do that." This depth makes it difficult to reason
+about it, but actually the same techniques that are illustrated here
+could be useful for making Balrog easier to work with -- it's still
+technically feasible to calculate populations and diff rulesets,
+assuming you already have the first-order-logic or whatever tools that
+you would need anyhow.
+
+Serializing a decision tree into a relational schema is not especially
+natural. I ended up doing it using JSON. This doesn't seem like a big
+problem to me because I don't see a lot of relational operations being
+needed in Balrog. Instead, we tend to either change a ruleset, or
+respond to an update query given a specific ruleset. Both of those are
+feasible using a "slurp and deserialize" approach.
+
+Modeling the evolution of a decision tree over time is still kind of
+unexplored. The option I went with here is to just mutate it
+in-place. Another, perhaps more elegant solution would be to create a
+new decision tree with only certain nodes modified. I'm not sure if
+that has value in a world where the edit history of the tree is also
+stored.
